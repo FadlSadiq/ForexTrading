@@ -1,165 +1,218 @@
 import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler
-import pandas as pd
 
 class FXTrading:
-    def __init__(self, fx_rates, real_fx_rates):
+    def __init__(self, real_fx_rates: np.ndarray, model, scalers: list, lookback: int = 30, initial_index: int = 900):
         """
-        Initialize the FXTrading simulation environment.
+        Initialize the FXTrading simulation environment for walk-forward prediction and trading simulation.
 
         Args:
-            fx_rates (numpy array): Predicted FX rates (3, N)
-            real_fx_rates (numpy array): Real FX rates (3, N)
+            real_fx_rates (np.ndarray): Real FX rates array, shape (3, T), T >= initial_index + days_to_simulate
+            model: Trained prediction model (e.g., PyTorch model), input shape=(batch, lookback, 3), output shape=(batch, 3)
+            scalers (list): List of length-3 scalers, fit on training data (before initial_index)
+            lookback (int): Sliding window size for prediction, e.g., 30
+            initial_index (int): Index in real_fx_rates at which simulation starts (i.e., next day index for prediction)
         """
-        self.Pre_fx_rates = fx_rates
         self.real_fx_rates = real_fx_rates
-        self.day = 0
-        self.start = fx_rates.shape[1] - 1  # Starting point in the time series
+        self.model = model
+        self.scalers = scalers
+        self.lookback = lookback
 
-        self.initial_capital = np.array([1000, 1000, 1000], dtype=float)
+        total_len = real_fx_rates.shape[1]
+        if initial_index < lookback:
+            raise ValueError(f"initial_index ({initial_index}) must be >= lookback ({lookback})")
+        if total_len < initial_index:
+            raise ValueError(f"Real data length {total_len} is less than initial_index {initial_index}, cannot initialize")
+
+        # Prepare initial history window: last `lookback` days before initial_index
+        start_hist = initial_index - lookback
+        self.Pre_fx_rates = real_fx_rates[:, start_hist:initial_index].copy()  # shape (3, lookback)
+
+        # Simulation parameters
+        self.initial_index = initial_index  # Next day index to predict and retrieve real price
+        self.day = 0  # Simulation day counter: 0 to days-1; real index = initial_index + day
+
+        # Initialize capital and positions
+        self.initial_capital = np.array([1000.0, 1000.0, 1000.0], dtype=float)
         self.capital = self.initial_capital.copy()
         self.available_margin = self.capital.copy()
-
-        self.leverage = np.array([5, 5, 5], dtype=float)
+        self.leverage = np.array([5.0, 5.0, 5.0], dtype=float)
         self.position_size = np.zeros(3, dtype=float)
-        self.position_value = np.zeros(3, dtype=float)
-        self.floating_pnl = np.zeros(3, dtype=float)
-
-        # Initialize now_price from Pre_fx_rates to avoid out-of-bounds
-        self.now_price = np.array([
-            self.Pre_fx_rates[0][self.start],
-            self.Pre_fx_rates[1][self.start],
-            self.Pre_fx_rates[2][self.start]
-        ], dtype=float)
         self.entry_price = np.zeros(3, dtype=float)
-        self.margin = 10  # Margin required per position
+        # now_price initialized to last known real price at index initial_index-1
+        self.now_price = real_fx_rates[:, initial_index - 1].copy()
+        self.floating_pnl = np.zeros(3, dtype=float)
+        self.margin = 10.0
 
-        self.model = None
-        self.scalers = None
-
-    def check_liquidation(self, cap_num, maintenance_margin_ratio_threshold=0.3):
-        equity = self.capital[cap_num] + self.floating_pnl[cap_num]
-        if equity / (self.margin * abs(self.position_size[cap_num])) < maintenance_margin_ratio_threshold:
-            return True
-        return False
-
-    def close_position(self, cap_num, close_price):
-        return (close_price - self.entry_price[cap_num]) * self.position_size[cap_num] * self.margin * self.leverage[cap_num] / close_price
-
-    def predict_fx_rate(self, data=None):
-        lookback = 30
-        current_idx = self.start + self.day
-
-        if current_idx < lookback:
-            last_fx = self.Pre_fx_rates[:, -1].reshape(3, 1)
-            self.Pre_fx_rates = np.concatenate([self.Pre_fx_rates, last_fx], axis=1)
-            return
-
+    def predict_next(self):
+        """
+        Predict next day's FX rates based on the last `lookback` days in self.Pre_fx_rates.
+        Returns:
+            np.ndarray shape (3,): predicted FX rates
+        """
+        if self.Pre_fx_rates.shape[1] < self.lookback:
+            raise ValueError("Pre_fx_rates length is less than lookback, cannot predict")
+        # Extract last lookback columns
+        hist = self.Pre_fx_rates[:, -self.lookback:]  # shape (3, lookback)
+        # Normalize and prepare input sequence of shape (1, lookback, 3)
         input_seq = np.stack([
-            self.scalers[i].transform(
-                self.real_fx_rates[i][current_idx - lookback:current_idx].reshape(-1, 1)
-            ).flatten()
+            self.scalers[i].transform(hist[i].reshape(-1, 1)).flatten()
             for i in range(3)
-        ]).T
-
+        ], axis=1)  # shape (lookback, 3)
         input_tensor = torch.tensor(input_seq[np.newaxis, :, :], dtype=torch.float32)
         self.model.eval()
         with torch.no_grad():
-            pred_scaled = self.model(input_tensor).numpy().flatten()
-
+            pred_scaled = self.model(input_tensor).cpu().numpy().flatten()
+        # Inverse transform
         pred_unscaled = np.array([
             self.scalers[i].inverse_transform([[pred_scaled[i]]])[0, 0]
             for i in range(3)
-        ])
+        ], dtype=float)
+        return pred_unscaled
 
-        self.Pre_fx_rates = np.concatenate([self.Pre_fx_rates, pred_unscaled.reshape(3, 1)], axis=1)
-
-    def open_position(self, cap_num, any):
-        action = 1
-        buy_num = 10
-        return action, buy_num
-
-    def decide_action(self, any):
-        action = 2
-        buy_num = 1
-        return action, buy_num
-
-    def update_entry_price(self, cap_num, add_price, old_position, add_position):
-        old_value = abs(old_position) * self.margin * self.leverage[cap_num]
-        add_value = abs(add_position) * self.margin * self.leverage[cap_num]
-        self.entry_price[cap_num] = (
-            self.entry_price[cap_num] * old_value + add_price * add_value
-        ) / (old_value + add_value)
-
-    def update(self):
+    def update_real(self):
         """
-        Update environment for current day (prices, margins, PnL, position value).
+        Retrieve real price for the current simulation day and update state:
+        - Update now_price, available_margin, floating_pnl
+        - Append real price to Pre_fx_rates history
         """
-        idx = self.start + self.day
-        # Use Pre_fx_rates to get current price (includes history + predictions)
-        self.now_price = np.array([
-            self.Pre_fx_rates[0][idx],
-            self.Pre_fx_rates[1][idx],
-            self.Pre_fx_rates[2][idx],
-        ])
+        idx = self.initial_index + self.day
+        total_len = self.real_fx_rates.shape[1]
+        if idx >= total_len:
+            raise IndexError(f"Real price index {idx} out of bounds for length {total_len}")
+        real_price = self.real_fx_rates[:, idx]
+        self.now_price = real_price.copy()
+        # Update margins
+        self.available_margin = self.capital - np.abs(self.position_size) * self.margin
+        # Compute floating PnL
+        self.floating_pnl = np.zeros_like(self.position_size)
+        for i in range(3):
+            if self.position_size[i] != 0 and real_price[i] != 0:
+                self.floating_pnl[i] = (
+                    self.position_size[i]
+                    * (real_price[i] - self.entry_price[i])
+                    * self.leverage[i]
+                    * self.margin
+                    / real_price[i]
+                )
+        # Append real price to history
+        self.Pre_fx_rates = np.concatenate([self.Pre_fx_rates, real_price.reshape(3, 1)], axis=1)
+        # Optionally keep only last lookback columns:
+        # if self.Pre_fx_rates.shape[1] > self.lookback:
+        #     self.Pre_fx_rates = self.Pre_fx_rates[:, -self.lookback:]
 
-        self.available_margin = self.capital - abs(self.position_size) * self.margin
-        self.position_value = abs(self.margin * self.position_size * self.leverage)
-        self.floating_pnl = (
-            self.position_size * (self.now_price - self.entry_price)
-            * self.leverage * self.margin / self.now_price
-        )
+    def decide_and_trade(self, predicted_price):
+        """
+        Execute trading decisions based on predicted_price and current state.
+        Replace or extend this logic with your specific algorithm.
+        Args:
+            predicted_price (np.ndarray): shape (3,), predicted next-day FX rates
+        """
+        # Example simple threshold strategy; adjust per your algorithm
+        threshold = 0.01
+        for i in range(3):
+            cur = self.now_price[i]
+            pred = predicted_price[i]
+            # No position: decide to open
+            if self.position_size[i] == 0:
+                if pred > cur * (1 + threshold):
+                    num = 1
+                    if num * self.margin <= self.available_margin[i]:
+                        self.position_size[i] += num
+                        self.entry_price[i] = cur
+                elif pred < cur * (1 - threshold):
+                    num = 1
+                    if num * self.margin <= self.available_margin[i]:
+                        self.position_size[i] -= num
+                        self.entry_price[i] = cur
+            else:
+                # Has position: decide to close based on PnL thresholds
+                pnl = self.floating_pnl[i]
+                take_profit = 10.0
+                stop_loss = -10.0
+                if pnl >= take_profit or pnl <= stop_loss:
+                    real = self.now_price[i]
+                    if real != 0:
+                        self.capital[i] += (
+                            self.position_size[i]
+                            * (real - self.entry_price[i])
+                            * self.leverage[i]
+                            * self.margin
+                            / real
+                        )
+                    self.position_size[i] = 0
+        # Extend with more complex logic as needed
 
-    def run_days(self, max_days=None):
+    def run_simulation(self, days: int = 90):
+        """
+        Run simulation for a number of trading days:
+        For each day:
+          1. predict_next() -> predicted_price
+          2. decide_and_trade(predicted_price)
+          3. update_real() to get actual price and update state
+          4. Print detailed multi-line info per currency
+          5. Record logs
+        After loop, close any open positions and print final results.
+
+        Args:
+            days (int): Number of trading days to simulate
+        Returns:
+            logs (list of dict): Each dict contains day, predicted, actual, floating_pnl, position_size, capital
+        """
+        currency_names = ["USD/JPY", "USD/EUR", "USD/GBP"]
+        total_len = self.real_fx_rates.shape[1]
+        if self.initial_index + days > total_len:
+            raise ValueError(f"Not enough real data to simulate {days} days: need index up to {self.initial_index + days - 1}, but have {total_len}")
         logs = []
-        for day in range(max_days):
+        for day in range(days):
             self.day = day
-            self.update()
-            self.predict_fx_rate(None)
-
-            # Print current state
-            print(f"Day {day+1}\n")
-            for i, name in enumerate(["USD/JPY", "USD/EUR", "USD/GBP"]):
-                print(f"{name}: Pre_fx_rate = {self.Pre_fx_rates[i][self.start+day]}, now_price = {self.now_price[i]}")
-                print(f"Capital = {self.capital[i]}, available_margin = {self.available_margin[i]}, position_size = {self.position_size[i]}, leverage = {self.leverage[i]}")
-                print(f"floating_pnl = {self.floating_pnl[i]}, entry_price = {self.entry_price[i]}, position_value = {self.position_value[i]}\n")
-
-            # Main trading logic
-            for cap_num in range(3):
-                if self.position_size[cap_num] != 0 and self.check_liquidation(cap_num):
-                    self.capital[cap_num] += self.close_position(cap_num, self.now_price[cap_num])
-                    self.position_size[cap_num] = 0
-
-                if self.position_size[cap_num] == 0 and self.capital[cap_num] > 0:
-                    action, num = self.open_position(cap_num, None)
-                    if action == 0 and num * self.margin <= self.available_margin[cap_num]:
-                        self.position_size[cap_num] += num
-                        self.entry_price[cap_num] = self.now_price[cap_num]
-                    elif action == 1 and num * self.margin <= self.available_margin[cap_num]:
-                        self.entry_price[cap_num] = self.now_price[cap_num]
-                        self.position_size[cap_num] -= num
-                else:
-                    action, num = self.decide_action(None)
-                    if action == 0:
-                        self.update_entry_price(cap_num, self.now_price[cap_num], self.position_size[cap_num], num)
-                        self.position_size[cap_num] += num
-                    elif action == 1:
-                        self.capital[cap_num] += self.close_position(cap_num, self.now_price[cap_num])
-                        self.position_size[cap_num] = 0
-
-            logs.append((
-                pd.Timestamp.now(),  # or build actual date
-                "N/A",  # placeholder for action summary
-                float(self.floating_pnl.sum()),
-                float(self.available_margin.sum())
-            ))
-
-        # Final update
-        self.capital += self.position_size * (self.now_price - self.entry_price) * self.leverage * self.margin / self.now_price
+            # 1. Predict next-day price
+            predicted = self.predict_next()
+            # 2. Decision and trade based on predicted
+            self.decide_and_trade(predicted)
+            # 3. Update real next-day price
+            self.update_real()
+            # 4. Print info
+            print(f"Day {day + 1}\n")
+            real_idx = self.initial_index + day
+            for i, name in enumerate(currency_names):
+                pre = predicted[i]
+                actual = self.real_fx_rates[i, real_idx]
+                cap = self.capital[i]
+                avail = self.available_margin[i]
+                pos = self.position_size[i]
+                lev = self.leverage[i]
+                pos_value_i = abs(self.margin * pos * lev)
+                pnl = self.floating_pnl[i]
+                entry = self.entry_price[i]
+                print(f"{name}:")
+                print(f"Pre_fx_rate: {pre:.6f} real_fx_rates: {actual:.6f}")
+                print(f"Capital: {cap:.2f} available_margin: {avail:.2f} position_size: {pos:.2f} leverage: {lev}")
+                print(f"floating_pnl: {pnl:.2f} entry_price: {entry:.6f} position_value: {pos_value_i:.2f}\n")
+            print("-" * 50)
+            # Record log
+            logs.append({
+                "day": day + 1,
+                "predicted": predicted.copy(),
+                "actual": self.now_price.copy(),
+                "floating_pnl": self.floating_pnl.copy(),
+                "position_size": self.position_size.copy(),
+                "capital": self.capital.copy()
+            })
+        # Close any open positions at final price
+        final_price = self.now_price.copy()
+        for i in range(3):
+            if self.position_size[i] != 0 and final_price[i] != 0:
+                self.capital[i] += (
+                    self.position_size[i]
+                    * (final_price[i] - self.entry_price[i])
+                    * self.leverage[i]
+                    * self.margin
+                    / final_price[i]
+                )
+                self.position_size[i] = 0
         print("Final Results:")
-        print(f"Capital JPY: {self.capital[0]}")
-        print(f"Capital EUR: {self.capital[1]}")
-        print(f"Capital GBP: {self.capital[2]}")
-        print(f"Rate of Return: {sum(self.capital)/sum(self.initial_capital)}")
+        for i, name in enumerate(currency_names):
+            print(f"{name}: capital {self.capital[i]:.2f}")
+        print(f"Rate of Return: {sum(self.capital) / sum(self.initial_capital):.4f}")
         return logs
