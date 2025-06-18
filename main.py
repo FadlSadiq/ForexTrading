@@ -1,5 +1,3 @@
-# main.py
-
 import os
 import argparse
 import numpy as np
@@ -10,7 +8,7 @@ from generate_fx_data import download_and_save_fx_data
 from lstm_model import train_lstm_model
 from fxtrading_class import FXTrading
 
-def main(update_data: bool, horizon: int = 50):
+def main(update_data: bool, horizon: int = 90):
     data_path = 'Data/fx_data.xlsx'
 
     # 1. 可选更新数据
@@ -48,13 +46,10 @@ def main(update_data: bool, horizon: int = 50):
 
     # 5. 划分训练集
     train_data = real_fx_data[:, :train_len]  # shape (3, train_len)
-    # 模拟时会用到真实数据索引范围 [train_len, train_len + horizon - 1]
 
     # 6. 训练 LSTM 模型，仅使用训练集
     print(f"Training LSTM model on first {train_len} trading days...")
-    # train_lstm_model signature: train_lstm_model(real_fx_data_subset, lookback=30, epochs=20)
     model, scalers, returned_lookback = train_lstm_model(train_data, lookback=lookback, epochs=20)
-    # 确保 returned_lookback == lookback
 
     # 7. 初始化模拟环境
     initial_index = train_len  # 下一步要预测/获取真实的起始索引
@@ -69,54 +64,28 @@ def main(update_data: bool, horizon: int = 50):
 
     # 8. 运行模拟
     if initial_index + horizon > total_len:
-        # 理论上 train_len 已确保 initial_index+horizon <= total_len
         raise ValueError(f"真实数据长度 {total_len} 不足以模拟 {horizon} 天")
     print(f"Running simulation for {horizon} trading days (indexes {initial_index} to {initial_index + horizon - 1})...")
     logs = env.run_simulation(days=horizon)
 
-    # 9. 保存日志到 Excel
-    df_logs = []
-    for entry in logs:
-        day = entry["day"]
-        predicted = entry["predicted"]
-        actual = entry["actual"]
-        pnl = entry["floating_pnl"]
-        pos = entry["position_size"]
-        cap = entry["capital"]
-        # 假设三个货币对按顺序 USD/JPY, USD/EUR, USD/GBP
-        row = {
-            "day": day,
-            "pred_USDJPY": predicted[0],
-            "pred_USDEUR": predicted[1],
-            "pred_USDGBP": predicted[2],
-            "act_USDJPY": actual[0],
-            "act_USDEUR": actual[1],
-            "act_USDGBP": actual[2],
-            "pnl_USDJPY": pnl[0],
-            "pnl_USDEUR": pnl[1],
-            "pnl_USDGBP": pnl[2],
-            "pos_USDJPY": pos[0],
-            "pos_USDEUR": pos[1],
-            "pos_USDGBP": pos[2],
-            "cap_USDJPY": cap[0],
-            "cap_USDEUR": cap[1],
-            "cap_USDGBP": cap[2],
-        }
-        df_logs.append(row)
-    df_logs = pd.DataFrame(df_logs)
+    # 9. 保存日志到 Excel（直接用日志字典生成 DataFrame）
+    df_logs = pd.DataFrame(logs)
     out_path = f"simulation_logs_{train_len}train_{horizon}sim.xlsx"
     df_logs.to_excel(out_path, index=False)
     print(f"Simulation logs saved to {out_path}")
 
-    # 10. 打印最终结果
-    final_capitals = env.capital
-    print("Final capitals:", final_capitals, "Return:", sum(final_capitals) / sum(env.initial_capital))
+    # 10. 计算并打印最终结果
+    final_capitals = env.capital.copy()
+    roi = sum(final_capitals) / sum(env.initial_capital)
+    print("Final capitals:", final_capitals)
+    print(f"Return: {roi:.4f}")
 
-    return logs
+    # 11. 返回 logs、最终资本、ROI 供外部调用
+    return logs, final_capitals, roi
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run FX Trading Simulation.")
     parser.add_argument("--update_data", action="store_true", help="Download fresh FX data")
-    parser.add_argument("--horizon", type=int, default=50, help="Number of trading days to simulate/predict (max 90)")
+    parser.add_argument("--horizon", type=int, default=90, help="Number of trading days to simulate/predict (max 90)")
     args = parser.parse_args()
     main(update_data=args.update_data, horizon=args.horizon)
