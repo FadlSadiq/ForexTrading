@@ -40,58 +40,78 @@ def landing_page(page: ft.Page) -> ft.Stack:
     return ft.Stack(
         expand=True, 
         controls=[
-            # Background image (full screen)
             ft.Image(
-                src="image_1.png",  # from assets
+                src="image_1.png",
                 expand=True, 
                 fit=ft.ImageFit.COVER,
+            ),
+
+            # 🟢 Logo in top-left corner
+            
+            ft.Container(
+                left=20,
+                top=20,
+                content=ft.GestureDetector(
+                on_tap=lambda e: page.go("/"),
+                mouse_cursor=ft.MouseCursor.CLICK,
+                content=ft.Image(
+                src="Logo.png",  # your logo file in assets
+                width=70,
+                height=70,
+                fit=ft.ImageFit.CONTAIN,
+                ),
+                ),
             ),
 
             # Foreground content in the center
             ft.Container(
                 expand=True,
                 alignment=ft.alignment.center,
-                left=page.width * 0.55,  # Adjust based on glow center
+                left=page.width * 0.18,
                 top=page.height * 0.4,
                 content=ft.Column(
                     [
-                        ft.Text("⚡ Trading Bots", size=14, color=ft.Colors.GREEN_400),
                         ft.Text(
-                            "The Fastest and Secure\nAI Trading Assistant.",
-                            size=30,
-                            color=ft.Colors.WHITE,
+                            "Take off with us toward financial freedom",
+                            size=54,
                             weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.WHITE,
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Text(
-                            "Trade faster and smarter with our secure AI bots.\n"
-                            "Maximize your investments with real-time insights and automation.",
-                            size=14,
-                            color=ft.Colors.with_opacity(0.75, ft.Colors.WHITE),
+                            "Great results follow thoughtful decisions.",
+                            size=20,
+                            weight=ft.FontWeight.NORMAL,
+                            color=ft.Colors.with_opacity(0.8, ft.Colors.WHITE),
                             text_align=ft.TextAlign.CENTER,
                         ),
                         ft.Container(
-                            margin=ft.margin.only(top=20),
+                            margin=ft.margin.only(top=30),
                             content=ft.ElevatedButton(
-                                text="🚀 Try Now",
+                                text="Try Simulation",
                                 style=ft.ButtonStyle(
-                                    bgcolor=ft.Colors.GREEN_400,
+                                    bgcolor=ft.Colors.WHITE,
                                     color=ft.Colors.BLACK,
                                     shape=ft.RoundedRectangleBorder(radius=20),
                                     padding=20,
                                 ),
                                 on_click=lambda e: page.go("/simulator"),
                             ),
+                        ),
+                        ft.Text(
+                            "Zero cost. Unlimited opportunity.",
+                            size=14,
+                            color=ft.Colors.with_opacity(0.6, ft.Colors.WHITE),
+                            text_align=ft.TextAlign.CENTER,
                         )
                     ],
-                    spacing=15,
+                    spacing=20,
                     alignment=ft.MainAxisAlignment.CENTER,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             )
         ]
     )
-
 
 
 def fetch_fx(pair: str, start: str, end: str) -> pd.DataFrame:
@@ -104,6 +124,75 @@ def fetch_fx(pair: str, start: str, end: str) -> pd.DataFrame:
         else:
             df.columns = df.columns.droplevel(0)
     return df
+
+def help_page(page: ft.Page):
+    return ft.Container(
+        padding=20,
+        content=ft.Column(
+            controls=[
+                ft.Text("Simulation Help", size=30, weight=ft.FontWeight.BOLD),
+                ft.Text("Learn how to use the FX Simulator and understand each metric.", size=16),
+                ft.Divider(),
+
+                ft.Text("• Currency Pair:", weight="bold"),
+                ft.Text("  Dropdown to select which FX pair to view or simulate (e.g. EURUSD=X, USDJPY=X)"),
+
+                ft.Text("• Start (YYYY-MM-DD):", weight="bold"),
+                ft.Text("  Start date for fetching historical OHLC data (year–month–day)"),
+
+                ft.Text("• End (YYYY-MM-DD):", weight="bold"),
+                ft.Text("  End date for fetching historical data"),
+
+                ft.Text("• Fetch:", weight="bold"),
+                ft.Text("  Button to download the selected pair’s historical data and update the chart/table"),
+
+                ft.Text("• Prediction Days:", weight="bold"),
+                ft.Text("  Number of days to simulate forward (positive integer, max 90)"),
+
+                ft.Text("• Predict:", weight="bold"),
+                ft.Text("  Button to run the LSTM forecast and trading simulation for the specified horizon"),
+
+                ft.Text("• <Pair> (Closing Exchange Rate):", weight="bold"),
+                ft.Text("  Chart title showing the selected currency pair’s closing price series"),
+
+                ft.Text("• Historical FX Data:", weight="bold"),
+                ft.Text("  Section header indicating the table below shows the fetched historical prices"),
+
+                ft.Text("• Date / Open / High / Low / Close:", weight="bold"),
+                ft.Text("  OHLC data for each historical date"),
+
+                ft.Text("• Predict FX Data:", weight="bold"),
+                ft.Text("  Section showing the simulation’s predicted results per day"),
+
+                ft.Text("• Day:", weight="bold"),
+                ft.Text("  Simulation day number from 1 to horizon"),
+
+                ft.Text("• Pair:", weight="bold"),
+                ft.Text("  Currency pair for each row (USD/JPY, USD/EUR, USD/GBP)"),
+
+                ft.Text("• Predicted / Actual:", weight="bold"),
+                ft.Text("  Model’s forecast vs. real historical exchange rate"),
+
+                ft.Text("• PnL (Profit & Loss):", weight="bold"),
+                ft.Text("  Intraday gain/loss based on open position"),
+
+                ft.Text("• Pos (Position):", weight="bold"),
+                ft.Text("  Held position: 1 = long, -1 = short, 0 = no position"),
+
+                ft.Text("• Final Results:", weight="bold"),
+                ft.Text("  Shows account balances for each pair and total ROI after simulation"),
+
+                ft.Divider(),
+                ft.ElevatedButton(
+                    text="Back to Simulator",
+                    on_click=lambda e: page.go("/simulator"),
+                    style=ft.ButtonStyle(padding=ft.padding.all(10), shape=ft.RoundedRectangleBorder(radius=12))
+                )
+            ],
+            scroll=ft.ScrollMode.AUTO,
+            spacing=10
+        )
+    )
 
 
 def fx_simulator_page(page: ft.Page):
@@ -120,12 +209,12 @@ def fx_simulator_page(page: ft.Page):
     today = date.today()
     one_year_ago = today - timedelta(days=365)
     page.start_tf = ft.TextField(label="Start (YYYY-MM-DD)", width=150, value=str(one_year_ago))
-    page.end_tf   = ft.TextField(label="End   (YYYY-MM-DD)", width=150, value=str(today))
-    fetch_btn     = ft.ElevatedButton("Fetch", on_click=lambda e: on_fetch(page))
+    page.end_tf = ft.TextField(label="End   (YYYY-MM-DD)", width=150, value=str(today))
+    fetch_btn = ft.ElevatedButton("Fetch", on_click=lambda e: on_fetch(page))
 
     # 控件：预测天数与按钮
     page.horizon_tf = ft.TextField(label="Prediction Days", width=100, value="50")
-    predict_btn     = ft.ElevatedButton("Predict", on_click=lambda e: on_predict(page))
+    predict_btn = ft.ElevatedButton("Predict", on_click=lambda e: on_predict(page))
 
     # 图表占位
     placeholder = (
@@ -136,30 +225,30 @@ def fx_simulator_page(page: ft.Page):
 
     # 历史数据表头
     page.header = ft.Row([
-        ft.Text("Date",  width=120, weight="bold"),
-        ft.Text("Open",  width=80,  weight="bold", text_align="right"),
-        ft.Text("High",  width=80,  weight="bold", text_align="right"),
-        ft.Text("Low",   width=80,  weight="bold", text_align="right"),
-        ft.Text("Close", width=80,  weight="bold", text_align="right"),
+        ft.Text("Date", width=120, weight="bold"),
+        ft.Text("Open", width=80, weight="bold", text_align="right"),
+        ft.Text("High", width=80, weight="bold", text_align="right"),
+        ft.Text("Low", width=80, weight="bold", text_align="right"),
+        ft.Text("Close", width=80, weight="bold", text_align="right"),
     ], spacing=5)
     page.list_view = ft.ListView(expand=True, spacing=2, height=200)
 
     # 模拟结果表头
     page.sim_header = ft.Row([
-        ft.Text("Day",       width=50, weight="bold"),
-        ft.Text("Pair",      width=80, weight="bold"),
+        ft.Text("Day", width=50, weight="bold"),
+        ft.Text("Pair", width=80, weight="bold"),
         ft.Text("Predicted", width=80, weight="bold", text_align="right"),
-        ft.Text("Actual",    width=80, weight="bold", text_align="right"),
-        ft.Text("PnL",       width=80, weight="bold", text_align="right"),
-        ft.Text("Pos",       width=80, weight="bold", text_align="right"),
+        ft.Text("Actual", width=80, weight="bold", text_align="right"),
+        ft.Text("PnL", width=80, weight="bold", text_align="right"),
+        ft.Text("Pos", width=80, weight="bold", text_align="right"),
     ], spacing=5)
     page.sim_list_view = ft.ListView(expand=True, spacing=2, height=200)
 
     # 最终结果显示区
     page.final_results = ft.Column(spacing=5)
 
-    # 布局：左右分栏
-    layout = ft.Row([
+    # 主内容布局（左右分栏）
+    main_layout = ft.Row([
         ft.Column([
             ft.Row([page.pair_dd, page.start_tf, page.end_tf, fetch_btn], spacing=15),
             ft.Row([page.img_chart], alignment=ft.MainAxisAlignment.START),
@@ -178,7 +267,58 @@ def fx_simulator_page(page: ft.Page):
         ], expand=2, spacing=10),
     ], expand=True, spacing=20)
 
-    return layout
+    # 🔳 Stack = main layout + floating logo on top-right
+    return ft.Stack(
+    expand=True,
+    controls=[
+        # Main page content
+        ft.Container(
+            expand=True,
+            padding=20,
+            content=main_layout,
+        ),
+
+        # Floating logo in top-right
+        ft.Container(
+            right=20,
+            top=20,
+            content=ft.GestureDetector(
+                on_tap=lambda e: page.go("/"),
+                mouse_cursor=ft.MouseCursor.CLICK,
+                content=ft.Column(
+                    controls=[
+                        ft.Image(
+                            src="Logo.png",
+                            width=40,
+                            height=40,
+                            fit=ft.ImageFit.CONTAIN,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+        ),
+
+        # 🔹 Help Button in top-right (just left of the logo)
+        ft.Container(
+            right=80,
+            top=20,
+            content=ft.ElevatedButton(
+                text="Help",
+                icon=ft.Icons.HELP_OUTLINE,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.BLUE_100,
+                    color=ft.Colors.BLACK,
+                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    shape=ft.RoundedRectangleBorder(radius=8),
+                ),
+                on_click=lambda e: page.go("/help"),
+            )
+        ),
+    ]
+)
+
+
 
 def on_fetch(page: ft.Page):
     pair, start, end = page.pair_dd.value, page.start_tf.value, page.end_tf.value
@@ -281,16 +421,41 @@ def on_predict(page: ft.Page):
 
 def main(page: ft.Page):
     def route_change(e):
-        page.views.clear()
         if page.route == "/":
-            page.views.append(ft.View("/", controls=[landing_page(page)], scroll=ft.ScrollMode.AUTO))
-        elif page.route == "/simulator":
-            layout = fx_simulator_page(page)
-            page.views.append(ft.View("/simulator", controls=[layout], scroll=ft.ScrollMode.AUTO))
-        page.update()
+            # Show landing page with background
+            page.views.append(
+                ft.View(
+                    route="/",
+                    controls=[landing_page(page)],
+                    scroll=ft.ScrollMode.AUTO,
+                )
+            )
 
+        elif page.route == "/simulator":
+            # Don't show background here
+            layout = fx_simulator_page(page)
+            page.views.append(
+                ft.View(
+                    route="/simulator",
+                    controls=[layout],
+                )
+            )
+        
+        elif page.route == "/help":
+            # Don't show background here
+            layout = help_page(page)
+            page.views.append(
+                ft.View(
+                    route="/help",
+                    controls=[layout],
+                    scroll=ft.ScrollMode.AUTO,
+                )
+            )
+
+        page.update()
     page.on_route_change = route_change
     page.go("/")
+
 
 # 启动应用
 if __name__ == "__main__":
