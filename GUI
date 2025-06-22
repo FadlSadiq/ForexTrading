@@ -35,6 +35,64 @@ def df_to_base64_plot(df: pd.DataFrame, pair: str) -> str:
     buf.seek(0)
     return base64.b64encode(buf.read()).decode()
 
+def landing_page(page: ft.Page) -> ft.Stack:
+    page.bgcolor = ft.Colors.BLACK
+    return ft.Stack(
+        expand=True, 
+        controls=[
+            # Background image (full screen)
+            ft.Image(
+                src="image_1.png",  # from assets
+                expand=True, 
+                fit=ft.ImageFit.COVER,
+            ),
+
+            # Foreground content in the center
+            ft.Container(
+                expand=True,
+                alignment=ft.alignment.center,
+                left=page.width * 0.55,  # Adjust based on glow center
+                top=page.height * 0.4,
+                content=ft.Column(
+                    [
+                        ft.Text("⚡ Trading Bots", size=14, color=ft.Colors.GREEN_400),
+                        ft.Text(
+                            "The Fastest and Secure\nAI Trading Assistant.",
+                            size=30,
+                            color=ft.Colors.WHITE,
+                            weight=ft.FontWeight.BOLD,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "Trade faster and smarter with our secure AI bots.\n"
+                            "Maximize your investments with real-time insights and automation.",
+                            size=14,
+                            color=ft.Colors.with_opacity(0.75, ft.Colors.WHITE),
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Container(
+                            margin=ft.margin.only(top=20),
+                            content=ft.ElevatedButton(
+                                text="🚀 Try Now",
+                                style=ft.ButtonStyle(
+                                    bgcolor=ft.Colors.GREEN_400,
+                                    color=ft.Colors.BLACK,
+                                    shape=ft.RoundedRectangleBorder(radius=20),
+                                    padding=20,
+                                ),
+                                on_click=lambda e: page.go("/simulator"),
+                            ),
+                        )
+                    ],
+                    spacing=15,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
+        ]
+    )
+
+
 
 def fetch_fx(pair: str, start: str, end: str) -> pd.DataFrame:
     df = yf.download(pair, start=start, end=end, progress=False, auto_adjust=False)
@@ -48,7 +106,7 @@ def fetch_fx(pair: str, start: str, end: str) -> pd.DataFrame:
     return df
 
 
-def main(page: ft.Page):
+def fx_simulator_page(page: ft.Page):
     # 界面初始化
     page.title = "FX GUI"
     page.window_width, page.window_height = 1000, 800
@@ -120,8 +178,7 @@ def main(page: ft.Page):
         ], expand=2, spacing=10),
     ], expand=True, spacing=20)
 
-    page.add(layout)
-
+    return layout
 
 def on_fetch(page: ft.Page):
     pair, start, end = page.pair_dd.value, page.start_tf.value, page.end_tf.value
@@ -222,6 +279,19 @@ def on_predict(page: ft.Page):
     ]
     page.update()
 
+def main(page: ft.Page):
+    def route_change(e):
+        page.views.clear()
+        if page.route == "/":
+            page.views.append(ft.View("/", controls=[landing_page(page)], scroll=ft.ScrollMode.AUTO))
+        elif page.route == "/simulator":
+            layout = fx_simulator_page(page)
+            page.views.append(ft.View("/simulator", controls=[layout], scroll=ft.ScrollMode.AUTO))
+        page.update()
+
+    page.on_route_change = route_change
+    page.go("/")
+
 # 启动应用
 if __name__ == "__main__":
-    ft.app(target=main, view=ft.WEB_BROWSER)
+    ft.app(target=main, view=ft.WEB_BROWSER, assets_dir="assets")
