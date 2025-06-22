@@ -8,6 +8,7 @@ from generate_fx_data import download_and_save_fx_data
 from lstm_model import train_lstm_model
 from fxtrading_class import FXTrading
 
+
 def main(update_data: bool, horizon: int = 90):
     data_path = 'Data/fx_data.xlsx'
 
@@ -18,7 +19,7 @@ def main(update_data: bool, horizon: int = 90):
     else:
         print("Using cached dataset from", data_path)
 
-    # 2. 加载真实数据，期望 load_fx_data 返回 shape (3, N) 的 numpy 数组
+    # 2. 加载真实数据
     real_fx_data = load_fx_data(filepath=data_path)
     total_len = real_fx_data.shape[1]
     print(f"Loaded real_fx_data with shape {real_fx_data.shape} (交易日数={total_len})")
@@ -45,14 +46,40 @@ def main(update_data: bool, horizon: int = 90):
         raise ValueError(f"训练长度 train_len={train_len} 小于 lookback={lookback}，无法进行 LSTM 训练。请提供更多历史数据或减小 horizon。")
 
     # 5. 划分训练集
-    train_data = real_fx_data[:, :train_len]  # shape (3, train_len)
+    train_data = real_fx_data[:, :train_len]
 
-    # 6. 训练 LSTM 模型，仅使用训练集
+    # 6. 训练 LSTM 模型（返回 history）
     print(f"Training LSTM model on first {train_len} trading days...")
-    model, scalers, returned_lookback = train_lstm_model(train_data, lookback=lookback, epochs=20)
+    model, scalers, returned_lookback, history = train_lstm_model(train_data, lookback=lookback, epochs=20)
+
+    # 可视化训练 Loss 与 Accuracy（非 GUI 场景）
+    try:
+        import matplotlib.pyplot as plt
+        epochs = list(range(1, len(history['loss']) + 1))
+        # Loss 曲线
+        plt.figure()
+        plt.plot(epochs, history['loss'], marker='o', linewidth=1)
+        plt.title("LSTM Training Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.grid(True)
+        plt.savefig('training_loss.png')
+        plt.close()
+
+        # Accuracy 曲线
+        plt.figure()
+        plt.plot(epochs, history['accuracy'], marker='o', linewidth=1)
+        plt.title("LSTM Training Accuracy")
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy")
+        plt.grid(True)
+        plt.savefig('training_accuracy.png')
+        plt.close()
+    except ImportError:
+        pass
 
     # 7. 初始化模拟环境
-    initial_index = train_len  # 下一步要预测/获取真实的起始索引
+    initial_index = train_len
     print(f"Initializing FXTrading with initial_index = {initial_index}")
     env = FXTrading(
         real_fx_rates=real_fx_data,
@@ -65,10 +92,10 @@ def main(update_data: bool, horizon: int = 90):
     # 8. 运行模拟
     if initial_index + horizon > total_len:
         raise ValueError(f"真实数据长度 {total_len} 不足以模拟 {horizon} 天")
-    print(f"Running simulation for {horizon} trading days (indexes {initial_index} to {initial_index + horizon - 1})...")
+    print(f"Running simulation for {horizon} trading days...")
     logs = env.run_simulation(days=horizon)
 
-    # 9. 保存日志到 Excel（直接用日志字典生成 DataFrame）
+    # 9. 保存日志到 Excel
     df_logs = pd.DataFrame(logs)
     out_path = f"simulation_logs_{train_len}train_{horizon}sim.xlsx"
     df_logs.to_excel(out_path, index=False)
@@ -80,7 +107,7 @@ def main(update_data: bool, horizon: int = 90):
     print("Final capitals:", final_capitals)
     print(f"Return: {roi:.4f}")
 
-    # 11. 返回 logs、最终资本、ROI 供外部调用
+    # 11. 返回 logs, final_capitals, roi
     return logs, final_capitals, roi
 
 if __name__ == "__main__":
