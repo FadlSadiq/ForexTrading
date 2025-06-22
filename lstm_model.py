@@ -1,4 +1,3 @@
-# lstm_model.py (无需改动，保持原样，只需注意返回 lookback)
 import torch
 import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
@@ -14,6 +13,7 @@ class FXLSTM(nn.Module):
         out, _ = self.lstm(x)
         return self.fc(out[:, -1, :])
 
+
 def create_sequences(data, lookback=30):
     X, y = [], []
     for i in range(data.shape[1] - lookback):
@@ -21,7 +21,12 @@ def create_sequences(data, lookback=30):
         y.append(data[:, i + lookback])
     return np.array(X), np.array(y)
 
+
 def train_lstm_model(real_fx_data, lookback=30, epochs=20):
+    """
+    Trains the LSTM model on FX data and returns the model, scalers, lookback, and training history.
+    History dict contains 'loss' and 'accuracy' lists of length `epochs`.
+    """
     # Normalize each series using MinMaxScaler fit on entire real_fx_data
     scalers = [MinMaxScaler() for _ in range(3)]
     fx_scaled = np.stack([
@@ -39,6 +44,9 @@ def train_lstm_model(real_fx_data, lookback=30, epochs=20):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
 
+    # Containers for history
+    history = {'loss': [], 'accuracy': []}
+
     # Train
     for epoch in range(epochs):
         model.train()
@@ -47,6 +55,21 @@ def train_lstm_model(real_fx_data, lookback=30, epochs=20):
         loss = criterion(pred, y_tensor)
         loss.backward()
         optimizer.step()
-        print(f'Epoch {epoch+1}, Loss: {loss.item():.6f}')
 
-    return model, scalers, lookback
+        # Record training loss
+        loss_value = loss.item()
+        history['loss'].append(loss_value)
+
+        # Compute directional accuracy: sign of (pred - last_input) vs sign of (y - last_input)
+        with torch.no_grad():
+            last_input = X_tensor[:, -1, :]  # shape (batch, features)
+            pred_diff = (pred - last_input)
+            true_diff = (y_tensor - last_input)
+            correct = ((pred_diff * true_diff) > 0).float()
+            # accuracy per feature, then average
+            accuracy = correct.mean().item()
+            history['accuracy'].append(accuracy)
+
+        print(f'Epoch {epoch+1}, Loss: {loss_value:.6f}, Accuracy: {accuracy:.4f}')
+
+    return model, scalers, lookback, history
