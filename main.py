@@ -2,12 +2,14 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
+from sklearn.metrics import r2_score
+from scipy.stats import pearsonr
 
 from data_loader import load_fx_data
 from generate_fx_data import download_and_save_fx_data
-from lstm_model import train_lstm_model
+from training_loop import train_model
+from Plotting_R2 import plot_pred_vs_actual
 from fxtrading_class import FXTrading
-
 
 def main(update_data: bool, horizon: int = 90):
     data_path = 'Data/fx_data.xlsx'
@@ -49,8 +51,8 @@ def main(update_data: bool, horizon: int = 90):
     train_data = real_fx_data[:, :train_len]
 
     # 6. 训练 LSTM 模型（返回 history）
-    print(f"Training LSTM model on first {train_len} trading days...")
-    model, scalers, returned_lookback, history = train_lstm_model(train_data, lookback=lookback, epochs=20)
+    print(f"Training model on first {train_len} trading days...")
+    model, scalers, returned_lookback, history = train_model(train_data, lookback=lookback, epochs=300)
 
     # 可视化训练 Loss 与 Accuracy（非 GUI 场景）
     try:
@@ -59,21 +61,31 @@ def main(update_data: bool, horizon: int = 90):
         # Loss 曲线
         plt.figure()
         plt.plot(epochs, history['loss'], marker='o', linewidth=1)
-        plt.title("LSTM Training Loss")
+        plt.title("Model Training Loss")
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.grid(True)
-        plt.savefig('training_loss.png')
+        plt.savefig('training_result/training_loss.png')
+        plt.close()
+
+        # RMSE
+        plt.figure()
+        plt.plot(epochs, history['rmse'], linewidth=1)
+        plt.title("Model Training RMSE")
+        plt.xlabel("Epoch")
+        plt.ylabel("RMSE")
+        plt.grid(True)
+        plt.savefig('training_result/training_RMSE.png')
         plt.close()
 
         # Accuracy 曲线
         plt.figure()
         plt.plot(epochs, history['accuracy'], marker='o', linewidth=1)
-        plt.title("LSTM Training Accuracy")
+        plt.title("Model Training Accuracy")
         plt.xlabel("Epoch")
         plt.ylabel("Accuracy")
         plt.grid(True)
-        plt.savefig('training_accuracy.png')
+        plt.savefig('training_result/training_accuracy.png')
         plt.close()
     except ImportError:
         pass
@@ -97,9 +109,23 @@ def main(update_data: bool, horizon: int = 90):
 
     # 9. 保存日志到 Excel
     df_logs = pd.DataFrame(logs)
-    out_path = f"simulation_logs_{train_len}train_{horizon}sim.xlsx"
+    out_path = f"training_result/simulation_logs_{train_len}train_{horizon}sim.xlsx"
     df_logs.to_excel(out_path, index=False)
     print(f"Simulation logs saved to {out_path}")
+
+    for fx in ["USDJPY", "USDEUR", "USDGBP"]:
+        pred_col = f"pred_{fx}"
+        act_col = f"act_{fx}"
+        if pred_col in df_logs.columns and act_col in df_logs.columns:
+            preds = df_logs[pred_col].values
+            actuals = df_logs[act_col].values
+            plot_pred_vs_actual(
+                preds,
+                actuals,
+                title=f"{fx} Prediction vs Actual",
+                save_path=f"training_result/pred_vs_actual_{fx}.png"
+            )
+
 
     # 10. 计算并打印最终结果
     final_capitals = env.capital.copy()

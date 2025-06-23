@@ -45,8 +45,6 @@ def landing_page(page: ft.Page) -> ft.Stack:
                 expand=True, 
                 fit=ft.ImageFit.COVER,
             ),
-
-            # 🟢 Logo in top-left corner
             
             ft.Container(
                 left=20,
@@ -55,7 +53,7 @@ def landing_page(page: ft.Page) -> ft.Stack:
                 on_tap=lambda e: page.go("/"),
                 mouse_cursor=ft.MouseCursor.CLICK,
                 content=ft.Image(
-                src="Logo.png",  # your logo file in assets
+                src="Logo.png",  
                 width=70,
                 height=70,
                 fit=ft.ImageFit.CONTAIN,
@@ -63,7 +61,6 @@ def landing_page(page: ft.Page) -> ft.Stack:
                 ),
             ),
 
-            # Foreground content in the center
             ft.Container(
                 expand=True,
                 alignment=ft.alignment.center,
@@ -152,7 +149,7 @@ def help_page(page: ft.Page):
                 ft.Text("• Predict:", weight="bold"),
                 ft.Text("  Button to run the LSTM forecast and trading simulation for the specified horizon"),
 
-                ft.Text("• <Pair> (Closing Exchange Rate):", weight="bold"),
+                ft.Text("• Pair (Closing Exchange Rate):", weight="bold"),
                 ft.Text("  Chart title showing the selected currency pair’s closing price series"),
 
                 ft.Text("• Historical FX Data:", weight="bold"),
@@ -267,7 +264,7 @@ def fx_simulator_page(page: ft.Page):
         ], expand=2, spacing=10),
     ], expand=True, spacing=20)
 
-    # 🔳 Stack = main layout + floating logo on top-right
+    # main layout + floating logo on top-right
     return ft.Stack(
     expand=True,
     controls=[
