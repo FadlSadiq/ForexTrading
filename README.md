@@ -7,7 +7,7 @@ This project is a realistic, AI-driven FX trading simulator designed for both en
 ## Model Structure
 The core of the simulator is a hybrid deep learning model that combines:
 
-- Transformer — for capturing global temporal dependencies
+- Convolutional Layers (CNN) — for extracting local time-series features
 - Bidirectional GRU — for modeling sequential market dynamics
 - Attention Mechanism — to focus on the most relevant time periods
 
